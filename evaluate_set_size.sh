@@ -10,6 +10,8 @@ if [ ! -f "$CONSTRAINT_H_PATH" ]; then
     exit -1
 fi
 
+mkdir -p logs
+
 # Variate the set size 1,2,4,...,64
 for i in {0..6}; do
     SET_SIZE=$((2**i))
@@ -23,10 +25,10 @@ for i in {0..6}; do
     FRESH=true ./setup.sh
 
     # Test
-    cd test/CangjieBench
-    ./compile.sh $SET_SIZE
+    cd test/wcet
+    ./test.sh > "$ROOT_DIR/logs/wcet-N${SET_SIZE}.log" 2>&1
 
-    echo "results-${SET_SIZE}.csv should be ready."
+    echo "wcet-N${SET_SIZE}.log should be ready."
 done
 
 echo "Done!"
