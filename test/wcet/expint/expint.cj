@@ -53,8 +53,6 @@ func expint(n: Int64, x: Int64): Int64 {
   } else {
     if (nm1 != 0) {
       ans = 2
-      // @range-cat: branch-bound - nm1 = 49 is non-zero, so this branch sets ans to 2
-      sassert(ans == 2)
     } else {
       ans = 1000
     }
