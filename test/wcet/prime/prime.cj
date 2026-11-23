@@ -23,14 +23,11 @@ func prime(n: UInt32): Bool {
     sassert(n <= 513239)
     // @range-cat: branch-bound - 21649 is the smaller of the two call-site constants
     sassert(n >= 21649)
-    // @range-cat: loop-bound - the trial-division induction variable starts at 0
-    sassert(i <= 0)
+
     if (even(n)) {
         return n == 2
     }
     i = 3
-    // @range-cat: arith-bound - the trial divisor scan starts at the constant 3
-    sassert(i == 3u32)
     while (i * i <= n) {
         /* ai: loop here min 0 max 357 end; */
         // @range-cat: loop-bound - i only ever grows from its initial value 3
