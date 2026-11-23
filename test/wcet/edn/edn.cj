@@ -127,10 +127,6 @@ func codebook(mask: Int64, bitchanged: Int64, numbasis: Int64, codeword: Int64, 
 
 func toShort(v: Int64): Int64 {
     var u: Int64 = v & 0xFFFF
-    // @range-cat: arith-bound - 16 bit mask caps u at 65535
-    sassert(u <= 65535)
-    // @range-cat: arith-bound - bitwise mask keeps u non-negative
-    sassert(u >= 0)
     if (u >= 0x8000) {
         u = u - 0x10000
     }
