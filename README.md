@@ -67,13 +67,34 @@ The solver currently models assignments and constants, SSA $\phi$ nodes, arithme
 - Arithmetic and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
 
 ## Solver pipeline
+Range analysis computes a value range for every variable in a CHIR program. It builds a constraint graph, splits it into strongly connected components, and solves them in dependency order.
+
+```mermaid
+flowchart LR
+    CHIR([CHIR program]):::input
+    CG[(Constraint<br/>graph)]:::structure
+    SCC[[Tarjan<br/>SCC]]:::analysis
+    ORDER[/Topological<br/>order/]:::order
+    SOLVER("Range solver<br/>widen → resolve → narrow"):::solver
+    OUT[(Abstract<br/>state)]:::result
+
+    CHIR --> CG --> SCC --> ORDER --> SOLVER --> OUT
+
+    classDef input fill:#bbdefb,stroke:#1565c0,color:#000
+    classDef structure fill:#eceff1,stroke:#455a64,color:#000
+    classDef analysis fill:#ffe0b2,stroke:#ef6c00,color:#000
+    classDef order fill:#fff9c4,stroke:#f9a825,color:#000
+    classDef solver fill:#fafafa,stroke:#455a64,stroke-width:2px,stroke-dasharray:6 4,color:#000
+    classDef result fill:#80cbc4,stroke:#00695c,color:#000
+```
 
 <details>
-<summary><strong>Range Analysis pipeline</strong> (click to expand)</summary>
+<summary><strong>More details: inside the range solver</strong> (click to expand)</summary>
+
+Each SCC is solved in topological order. Acyclic SCCs take a single pass. Cyclic ones iterate widening, symbolic future resolution and narrowing until stable.
 
 ```mermaid
 flowchart TD
-    %% ── Pipeline (what the outside world sees) ──
     CHIR([CHIR program]):::input
     CG[(Constraint graph)]:::structure
     SCC[[Tarjan SCC decomposition]]:::analysis
