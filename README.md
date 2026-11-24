@@ -67,6 +67,10 @@ The solver currently models assignments and constants, SSA $\phi$ nodes, arithme
 - Arithmetic and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
 
 ## Solver pipeline
+
+<details>
+<summary><strong>Range Analysis pipeline</strong> (click to expand)</summary>
+
 ```mermaid
 flowchart TD
     %% ── Pipeline (what the outside world sees) ──
@@ -82,7 +86,6 @@ flowchart TD
     ORDER --> SOLVER
     SOLVER --> OUT
 
-    %% ── Solver (implementation detail, hidden behind one bubble) ──
     subgraph SOLVER["Range solver · fixpoint per SCC"]
         direction TB
         NEXT{More SCCs?}:::decision
@@ -102,8 +105,6 @@ flowchart TD
         COMMIT --> NEXT
     end
 
-    NEXT -.->|no: all done| EXIT(( )):::hidden
-
     classDef input fill:#bbdefb,stroke:#1565c0,color:#000
     classDef structure fill:#eceff1,stroke:#455a64,color:#000
     classDef analysis fill:#ffe0b2,stroke:#ef6c00,color:#000
@@ -115,10 +116,11 @@ flowchart TD
     classDef narrow fill:#c8e6c9,stroke:#2e7d32,color:#000
     classDef commit fill:#b2dfdb,stroke:#00695c,color:#000
     classDef result fill:#80cbc4,stroke:#00695c,color:#000
-    classDef hidden fill:none,stroke:none,color:#0000
 
     style SOLVER fill:#fafafa,stroke:#455a64,stroke-width:2px,stroke-dasharray:6 4,color:#000
 ```
+
+</details>
 
 The constraint graph is decomposed with Tarjan's algorithm and reversed into topological order, so producers are evaluated before consumers. Each strongly connected component is solved independently:
 
