@@ -67,39 +67,57 @@ The solver currently models assignments and constants, SSA $\phi$ nodes, arithme
 - Arithmetic and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
 
 ## Solver pipeline
-
 ```mermaid
 flowchart TD
-    CHIR([CHIR program]) --> G[(Constraint graph)]
-    G --> Tarjan{{Tarjan SCC decomposition}}
-    Tarjan --> T[/Topological SCC order/]
-    T --> S{For each SCC}
-    S --> W[/Growth / widening/]
-    W --> F[/Symbolic future resolution/]
-    F --> N[/Monotonic narrowing/]
-    N --> R([Abstract state])
+    %% ── Pipeline (what the outside world sees) ──
+    CHIR([CHIR program]):::input
+    CG[(Constraint graph)]:::structure
+    SCC[[Tarjan SCC decomposition]]:::analysis
+    ORDER[/Topological SCC order/]:::order
+    OUT[(Abstract state<br/>variable → range)]:::result
 
-    R -. rerun cyclic SCC until stable .-> W
+    CHIR -->|generate constraints| CG
+    CG --> SCC
+    SCC --> ORDER
+    ORDER --> SOLVER
+    SOLVER --> OUT
 
-    classDef source fill:#bbdefb,stroke:#1565c0,color:#000
-    classDef constraintGraph fill:#eceff1,stroke:#455a64,color:#000
-    classDef decomposition fill:#ffe0b2,stroke:#ef6c00,color:#000
+    %% ── Solver (implementation detail, hidden behind one bubble) ──
+    subgraph SOLVER["Range solver · fixpoint per SCC"]
+        direction TB
+        NEXT{More SCCs?}:::decision
+        CYC{SCC cyclic?}:::decision
+        EVAL[Single-pass evaluation]:::eval
+        W[Widening<br/>grow bounds upward<br/>to force termination]:::widen
+        F[Symbolic future resolution<br/>bind deferred bounds]:::future
+        N[Narrowing<br/>tighten monotonically]:::narrow
+        STABLE{Stable?}:::decision
+        COMMIT[Commit SCC ranges]:::commit
+
+        NEXT -->|yes| CYC
+        CYC -->|no: acyclic| EVAL --> COMMIT
+        CYC -->|yes: cyclic| W --> F --> N --> STABLE
+        STABLE -->|no: rerun| W
+        STABLE -->|yes| COMMIT
+        COMMIT --> NEXT
+    end
+
+    NEXT -.->|no: all done| EXIT(( )):::hidden
+
+    classDef input fill:#bbdefb,stroke:#1565c0,color:#000
+    classDef structure fill:#eceff1,stroke:#455a64,color:#000
+    classDef analysis fill:#ffe0b2,stroke:#ef6c00,color:#000
     classDef order fill:#fff9c4,stroke:#f9a825,color:#000
-    classDef loop fill:#e1bee7,stroke:#7b1fa2,color:#000
-    classDef growth fill:#ffcdd2,stroke:#c62828,color:#000
+    classDef decision fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef eval fill:#e0f2f1,stroke:#00897b,color:#000
+    classDef widen fill:#ffcdd2,stroke:#c62828,color:#000
     classDef future fill:#fff59d,stroke:#f9a825,color:#000
-    classDef narrowing fill:#c8e6c9,stroke:#2e7d32,color:#000
+    classDef narrow fill:#c8e6c9,stroke:#2e7d32,color:#000
+    classDef commit fill:#b2dfdb,stroke:#00695c,color:#000
     classDef result fill:#80cbc4,stroke:#00695c,color:#000
+    classDef hidden fill:none,stroke:none,color:#0000
 
-    class CHIR source
-    class G constraintGraph
-    class Tarjan decomposition
-    class T order
-    class S loop
-    class W growth
-    class F future
-    class N narrowing
-    class R result
+    style SOLVER fill:#fafafa,stroke:#455a64,stroke-width:2px,stroke-dasharray:6 4,color:#000
 ```
 
 The constraint graph is decomposed with Tarjan's algorithm and reversed into topological order, so producers are evaluated before consumers. Each strongly connected component is solved independently:
