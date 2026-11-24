@@ -148,3 +148,18 @@ git checkout v1.2.0-beta.02
 ```
 
 - Run the setup script. `./setup.sh`
+
+## Documentation
+
+A full account of the range analysis algorithm implemented in this repository is available in this [technical report](https://lac-dcc.github.io/pubs/TechReports/LaC_TechReport032026.pdf). How to cite:
+
+```bib
+@techreport{Borges26,
+  title        = {Cangjie Range Analysis},
+  author       = {Bernardo Borges and Elisa Frohlich and Vinicius Silva and Rafael Paniago and Pereira, Fernando Magno Quint{\~a}o},
+  year         = {2026},
+  institution  = {The Federal University of Minas Gerais},
+  number       = {03/2026},
+  url          = {https://lac-dcc.github.io/pubs/TechReports/LaC_TechReport032026.pdf}
+}
+```
