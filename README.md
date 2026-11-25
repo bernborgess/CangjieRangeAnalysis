@@ -1,6 +1,6 @@
 # Cangjie Range Analysis
 >
-> UFMG Compiler's Lab - Brazil
+> UFMG [Compiler's Lab](https://lac-dcc.github.io/) - Brazil
 
 ## Cangjie Programming Language
 
