@@ -1,12 +1,22 @@
-# CheeseBread Analysis
+# Cangjie Range Analysis
+>
+> UFMG [Compiler's Lab](https://lac-dcc.github.io/) - Brazil
 
-- UFMG Compiler's Lab
+## Cangjie Programming Language
 
-## Cangjie and range analysis
+[Cangjie](https://cangjie-lang.cn/) is a general-purpose, statically typed
+language designed for application development across several computing
+environments. The project extends the Cangjie compiler with an integer range
+analysis pass that runs over CHIR, the compiler's intermediate representation.
 
-[Cangjie](https://cangjie-lang.cn/) is a general-purpose, statically typed language designed for application development across several computing environments. CheeseBread extends the Cangjie compiler with an integer range analysis pass that runs over CHIR, the compiler's intermediate representation.
+## Range Analysis Pass
 
-A range analysis over-approximates the possible values of each integer variable at every program point. That information lets the compiler answer questions that constant or conventional interval analysis may miss, such as whether a loop has reached a stable bound or whether a branch is unreachable. It can also support downstream optimizations, including dead-branch elimination and more precise integer operations.
+A range analysis over-approximates the possible values of each integer variable
+at every program point. That information lets the compiler answer questions that
+constant or conventional interval analysis may miss, such as whether a loop has
+reached a stable bound or whether a branch is unreachable. It can also support
+downstream optimizations, including dead-branch elimination and more precise
+integer operations.
 
 <!-- Small example with identified ranges -->
 
@@ -24,27 +34,33 @@ func foo() {
 
 ## Abstract domain
 
-The integer domain combines finite sets with strided intervals. The exact set $\{v_1, \ldots, v_k\}$ records constants while $k \leq N$, where `INT_VALUE_SET_SIZE` controls $N$. Once the set limit is exceeded, the value collapses to an interval
+The integer domain builds on [Ernani et al](https://ieeexplore.ieee.org/document/6494996)'s work, but we combine finite sets with strided intervals. The exact set $\{v_1, \ldots, v_k\}$ records constants while $k \leq N$, where [`INT_VALUE_SET_SIZE`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L17) controls $N$. Once the set limit is exceeded, the value collapses to an interval:
 
 $$
-[l, u : s] = \{l, l+s, l+2s, \ldots, u\},
+[l, u : s] := \{x \mid l \le x \le u, \; x \equiv l\pmod s \},
 $$
 
-with lower bound $l$, upper bound $u$, and stride $s \geq 1$. Bounds may be constants or $\pm\infty$. Booleans use a separate abstract value.
+with lower bound $l$, upper bound $u$, and stride $s \geq 1$. Bounds may be
+constants or $\pm\infty$. Booleans use a separate abstract value.
 
-The lattice is ordered by precision: $\bot$ is the empty set, finite sets and strided intervals describe successively less precise states, and $\top = (-\infty,+\infty:1)$ accepts every integer. Joining values enlarges the approximation. A set can grow until $N$ is reached, after which the implementation derives a strided interval from the GCD of its values.
+The lattice is ordered by precision: $\bot$ is the empty set (which allows to
+prove unreachable code), finite sets and strided intervals describe successively
+less precise states, and $\top = [-\infty,+\infty:1]$ accepts every integer.
+Joining values enlarges the approximation. A set can grow until $N$ is reached,
+after which the implementation derives a strided interval from the GCD of its
+values.
 
 ```mermaid
 graph BT
     %% Edges go from more precise to less precise (a ⊑ b). Example with N = 3.
-    BOT["⊥ = ∅"] --> S0["{0}"] & S2["{2}"]
-    S0 & S2 --> S02["{0, 2}"]
-    S02 --> S024["{0, 2, 4}"]
-    S024 -->|"set overflows N,<br/>collapse to stride"| I082["(0, 8, 2)"]
-    I082 -->|"stride refinement"| I081["(0, 8, 1)"]
-    I082 -->|"bound widening"| I0P2["(0, +∞, 2)"]
-    I081 & I0P2 --> I0P1["(0, +∞, 1)"]
-    I0P1 --> TOP["⊤ = (−∞, +∞, 1)"]
+    BOT(["⊥ = ∅"]) --> S0(["{0}"]) & S2(["{2}"])
+    S0 & S2 --> S02(["{0, 2}"])
+    S02 --> S024(["{0, 2, 4}"])
+    S024 -->|"set overflows N,<br/>collapse to stride"| I082(["[0, 8:2]"])
+    I082 -->|"stride refinement"| I081(["[0, 8:1]"])
+    I082 -->|"bound widening"| I0P2(["[0, +∞:2]"])
+    I081 & I0P2 --> I0P1(["[0, +∞:1]"])
+    I0P1 --> TOP(["⊤ = [−∞, +∞:1]"])
 
     classDef set fill:#c8e6c9,stroke:#2e7d32,color:#000
     classDef si fill:#bbdefb,stroke:#1565c0,color:#000
@@ -54,70 +70,171 @@ graph BT
     class L3,L4,L5 note
 ```
 
+### Conversion to e-SSA
+
+Our constraint extraction operates over a program in _Extended Static Single
+Assignment form_ (e-SSA), introduced by [Bodík et
+al.](https://dl.acm.org/doi/10.1145/358438.349342), we split variable live
+ranges at conditional branches, deriving information based on the path taken.
+For each conditional branch, we create fresh variables to represent the value on
+each path. We create _Intersection Constraints_ that refine the variable values
+based on the condition of each path. For example:
+
+- **if** $(x_0 < 0)$
+- **then** $x_1  = x_0 \cap [-\infty,-1:1]$
+- **else** $x_2 = x_0 \cap [0, +\infty:1]$
+
+With _future bound_ placeholders $(\text{ft}({V}))$ we also capture
+relationships between variables in comparisons. After the conversion we achieve
+a unique _Alias_ for each variable assignment in the program, what is the key to
+the abstract state.
+
 ## Constraint extraction
 
-Range analysis is formulated as a system of dataflow constraints over SSA variables. `CompetitionRangeAnalysis` traverses CHIR values and adds equations to a `ConstraintGraph`; helper constraints for constants such as `0` and `true` are inserted explicitly.
+Range analysis is formulated as a system of dataflow constraints over SSA
+variables.
+[`CompetitionRangeAnalysis`](https://github.com/bernborgess/cheesebread/blob/main/cangjie_compiler/src/CHIR/Competition/CompetitionRangeAnalysis.cpp)
+traverses CHIR values and adds equations to a
+[`ConstraintGraph`](https://github.com/bernborgess/cheesebread/blob/main/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Graph.h);
+helper constraints for constants such as `0` and `true` are inserted explicitly.
 
-The solver currently models assignments and constants, SSA $\phi$ nodes, arithmetic and comparisons, intersections with bounds, and related integer operations. The principal constraint kinds include:
+The solver currently models assignments and constants, SSA $\phi$ nodes,
+arithmetic and comparisons, intersections with bounds, and related integer
+operations. The principal constraint kinds include:
 
-- `InitializationConstraint`: $x = c$, for an integer constant $c$.
-- `InitializationIntegerTop`: initializes a variable to the Cangjie `Int64` top range.
-- `PhiConstraint`: $x = \phi(x_1, \ldots, x_k)$ joins values from multiple control-flow predecessors.
-- `IntersectionConstraint`: $x = y \cap [l,u]$, with bounds that may reference another variable symbolically.
-- Arithmetic and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
+- [`InitializationConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L137):
+  $x = c$, for an integer constant $c$.
+- [`InitializationIntegerTop`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L158):
+  initializes a variable to the Cangjie `Int64` top range.
+- [`PhiConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L180):
+  $x = \phi(x_1, \ldots, x_k)$ joins values from multiple control-flow
+  predecessors.
+- [`IntersectionConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L220):
+  $x = y \cap [l,u]$, with bounds that may reference another variable
+  symbolically.
+- [Arithmetic](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L369)
+  and comparison constraints: equations that evaluate expressions using abstract
+  integer or Boolean values.
 
 ## Solver pipeline
 
+Range analysis computes a value range for every variable in a CHIR program. It
+builds a constraint graph, splits it into strongly connected components, and
+solves them in dependency order.
+
 ```mermaid
-flowchart TD
-    CHIR([CHIR program]) --> G[(Constraint graph)]
-    G --> Tarjan{{Tarjan SCC decomposition}}
-    Tarjan --> T[/Topological SCC order/]
-    T --> S{For each SCC}
-    S --> W[/Growth / widening/]
-    W --> F[/Symbolic future resolution/]
-    F --> N[/Monotonic narrowing/]
-    N --> R([Abstract state])
+flowchart LR
+    CHIR([CHIR program]):::input
+    CG[(Constraint<br/>graph)]:::structure
+    SCC[[Tarjan<br/>SCC]]:::analysis
+    ORDER[/Topological<br/>order/]:::order
+    SOLVER("Range solver<br/>widen → resolve → narrow"):::solver
+    OUT[(Abstract<br/>state)]:::result
 
-    R -. rerun cyclic SCC until stable .-> W
+    CHIR --> CG --> SCC --> ORDER --> SOLVER --> OUT
 
-    classDef source fill:#bbdefb,stroke:#1565c0,color:#000
-    classDef constraintGraph fill:#eceff1,stroke:#455a64,color:#000
-    classDef decomposition fill:#ffe0b2,stroke:#ef6c00,color:#000
+    classDef input fill:#bbdefb,stroke:#1565c0,color:#000
+    classDef structure fill:#eceff1,stroke:#455a64,color:#000
+    classDef analysis fill:#ffe0b2,stroke:#ef6c00,color:#000
     classDef order fill:#fff9c4,stroke:#f9a825,color:#000
-    classDef loop fill:#e1bee7,stroke:#7b1fa2,color:#000
-    classDef growth fill:#ffcdd2,stroke:#c62828,color:#000
-    classDef future fill:#fff59d,stroke:#f9a825,color:#000
-    classDef narrowing fill:#c8e6c9,stroke:#2e7d32,color:#000
+    classDef solver fill:#fafafa,stroke:#455a64,stroke-width:2px,stroke-dasharray:6 4,color:#000
     classDef result fill:#80cbc4,stroke:#00695c,color:#000
-
-    class CHIR source
-    class G constraintGraph
-    class Tarjan decomposition
-    class T order
-    class S loop
-    class W growth
-    class F future
-    class N narrowing
-    class R result
 ```
 
-The constraint graph is decomposed with Tarjan's algorithm and reversed into topological order, so producers are evaluated before consumers. Each strongly connected component is solved independently:
+<details>
+<summary><strong>More details: inside the range solver</strong> (click to expand)</summary>
 
-1. **Growth analysis** repeatedly evaluates every constraint and joins newly discovered values. Set limits and widening delays control how precision is reduced.
-2. **Future resolution** replaces symbolic intersection bounds, such as bounds derived from another variable, with the values currently known for that variable.
-3. **Narrowing analysis** reevaluates constraints from a bottom state and intersects the result with the previously widened state. This recovers tighter bounds while the domain is moving toward a fixed point.
+Each SCC is solved in topological order. Acyclic SCCs take a single pass. Cyclic
+ones iterate widening, symbolic future resolution and narrowing until stable.
 
-The result is a sound over-approximation of the values reaching each analyzed SSA variable.
+```mermaid
+flowchart TD
+    CHIR([CHIR program]):::input
+    CG[(Constraint graph)]:::structure
+    SCC[[Tarjan SCC decomposition]]:::analysis
+    ORDER[/Topological SCC order/]:::order
+    OUT[(Abstract state<br/>variable → range)]:::result
+
+    CHIR -->|generate constraints| CG
+    CG --> SCC
+    SCC --> ORDER
+    ORDER --> SOLVER
+    SOLVER --> OUT
+
+    subgraph SOLVER["Range solver · fixpoint per SCC"]
+        direction TB
+        NEXT{More SCCs?}:::decision
+        CYC{SCC cyclic?}:::decision
+        EVAL[Single-pass evaluation]:::eval
+        W[Widening<br/>grow bounds upward<br/>to force termination]:::widen
+        F[Symbolic future resolution<br/>bind deferred bounds]:::future
+        N[Narrowing<br/>tighten monotonically]:::narrow
+        STABLE{Stable?}:::decision
+        COMMIT[Commit SCC ranges]:::commit
+
+        NEXT -->|yes| CYC
+        CYC -->|no: acyclic| EVAL --> COMMIT
+        CYC -->|yes: cyclic| W --> F --> N --> STABLE
+        STABLE -->|no: rerun| W
+        STABLE -->|yes| COMMIT
+        COMMIT --> NEXT
+    end
+
+    classDef input fill:#bbdefb,stroke:#1565c0,color:#000
+    classDef structure fill:#eceff1,stroke:#455a64,color:#000
+    classDef analysis fill:#ffe0b2,stroke:#ef6c00,color:#000
+    classDef order fill:#fff9c4,stroke:#f9a825,color:#000
+    classDef decision fill:#e1bee7,stroke:#7b1fa2,color:#000
+    classDef eval fill:#e0f2f1,stroke:#00897b,color:#000
+    classDef widen fill:#ffcdd2,stroke:#c62828,color:#000
+    classDef future fill:#fff59d,stroke:#f9a825,color:#000
+    classDef narrow fill:#c8e6c9,stroke:#2e7d32,color:#000
+    classDef commit fill:#b2dfdb,stroke:#00695c,color:#000
+    classDef result fill:#80cbc4,stroke:#00695c,color:#000
+
+    style SOLVER fill:#fafafa,stroke:#455a64,stroke-width:2px,stroke-dasharray:6 4,color:#000
+```
+
+</details>
+
+The constraint graph is decomposed with Tarjan's algorithm and reversed into
+topological order, so producers are evaluated before consumers. Each strongly
+connected component is solved independently:
+
+1. **Growth analysis** repeatedly evaluates every constraint and joins newly
+   discovered values. Set limits and widening delays control how precision is
+   reduced.
+2. **Future resolution** replaces symbolic intersection bounds, such as bounds
+   derived from another variable, with the values currently known for that
+   variable.
+3. **Narrowing analysis** reevaluates constraints from a bottom state and
+   intersects the result with the previously widened state. This recovers
+   tighter bounds while the domain is moving toward a fixed point.
+
+The result is a sound over-approximation of the values reaching each analyzed
+SSA variable.
 
 ## Benchmarks and validation
 
-The test harness under `test/` exercises the analysis with static assertions (`sassert`). These assertions have no runtime meaning; they describe properties that range analysis should prove after compilation.
+The test harness under
+[`test/`](https://github.com/bernborgess/cheesebread/tree/main/test) exercises
+the analysis with static assertions (`sassert`). These assertions have no
+runtime meaning; they describe properties that range analysis should prove after
+compilation.
 
-- `test/handmade/`: small programs designed to expose individual behaviors such as loops, arithmetic, arrays, recursion, and control-flow merges.
-- `test/flavors/`: focused widening and narrowing cases. For example, `fudge.cj` verifies that `i` is exactly `10` after a bounded loop.
-- `test/wcet/`: real-time and worst-case execution benchmark programs adapted from the WCET benchmark collection. They cover nested loops, sorting, digital filters, matrix operations, bit operations, recursion, and generated control flow.
-- `test/CangjieBench/`: 164 Cangjie programs used to measure analysis scale and code generation success across larger source inputs.
+- [`test/handmade/`](https://github.com/bernborgess/cheesebread/tree/main/test/handmade):
+  small programs designed to expose individual behaviors such as loops,
+  arithmetic, arrays, recursion, and control-flow merges.
+- [`test/flavors/`](https://github.com/bernborgess/cheesebread/tree/main/test/flavors):
+  focused widening and narrowing cases. For example, `fudge.cj` verifies that
+  `i` is exactly `10` after a bounded loop.
+- [`test/wcet/`](https://github.com/bernborgess/cheesebread/tree/main/test/wcet):
+  real-time and worst-case execution benchmark programs adapted from the WCET
+  benchmark collection. They cover nested loops, sorting, digital filters,
+  matrix operations, bit operations, recursion, and generated control flow.
+- [`test/CangjieBench/`](https://github.com/bernborgess/cheesebread/tree/main/test/CangjieBench):
+  164 Cangjie programs used to measure analysis scale and code generation
+  success across larger source inputs.
 
 Run a suite after building the compiler:
 
@@ -129,16 +246,23 @@ Run a suite after building the compiler:
 ./test/run_all.sh cangjiebench
 ```
 
-The harness compiles each case with `-O2 -j1`, reports static assertion failures, and compares expected output for handmade cases that provide `expected.txt`. WCET cases receive a generated input file and CangjieBench programs are compiled as static libraries.
+The harness compiles each case with `-O2 -j1`, reports static assertion
+failures, and compares expected output for handmade cases that provide
+`expected.txt`. WCET cases receive a generated input file and CangjieBench
+programs are compiled as static libraries.
 
-Set-size sensitivity can be measured with `evaluate_set_size.sh`. It rebuilds the compiler for exact-set capacities $1,2,4,8,16,32,64$, runs `test/CangjieBench/compile.sh` for each capacity, and writes `results-N.csv` files containing variable counts, constraint counts, bitwidth reduction, and analysis time.
+Set-size sensitivity can be measured with `evaluate_set_size.sh`. It rebuilds
+the compiler for exact-set capacities $1,2,4,8,16,32,64$, runs
+[`test/CangjieBench/compile.sh`](https://github.com/bernborgess/cheesebread/blob/main/test/CangjieBench/compile.sh)
+for each capacity, and writes `results-N.csv` files containing variable counts,
+constraint counts, bitwidth reduction, and analysis time.
 
 ## Setup
 
 - Prerequisites
   - Python3
   - Clang-{16,18,20}
-- [reference](https://gitcode.com/Cangjie/cangjie_build/blob/main/doc_en/linux.md)
+- [Reference](https://gitcode.com/Cangjie/cangjie_build/blob/main/doc_en/linux.md) for Cangjie setup
 - Initialize submodules
 
 ```bash
@@ -147,11 +271,14 @@ cd cangjie_runtime
 git checkout v1.2.0-beta.02
 ```
 
-- Run the setup script. `./setup.sh`
+- Run the setup script. [`./setup.sh`](https://github.com/bernborgess/cheesebread/blob/main/setup.sh)
 
 ## Documentation
 
-A full account of the range analysis algorithm implemented in this repository is available in this [technical report](https://lac-dcc.github.io/pubs/TechReports/LaC_TechReport032026.pdf). How to cite:
+A full account of the range analysis algorithm implemented in this repository is
+available in this [technical
+report](https://lac-dcc.github.io/pubs/TechReports/LaC_TechReport032026.pdf).
+How to cite:
 
 ```bib
 @techreport{Borges26,
