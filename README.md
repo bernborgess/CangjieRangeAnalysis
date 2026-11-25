@@ -1,10 +1,11 @@
-# CheeseBread Analysis
+# Cangjie Range Analysis
+> UFMG Compiler's Lab - Brazil
 
-- UFMG Compiler's Lab
+## Cangjie Programming Language
 
-## Cangjie and range analysis
+[Cangjie](https://cangjie-lang.cn/) is a general-purpose, statically typed language designed for application development across several computing environments. The project extends the Cangjie compiler with an integer range analysis pass that runs over CHIR, the compiler's intermediate representation.
 
-[Cangjie](https://cangjie-lang.cn/) is a general-purpose, statically typed language designed for application development across several computing environments. CheeseBread extends the Cangjie compiler with an integer range analysis pass that runs over CHIR, the compiler's intermediate representation.
+## Range Analysis Pass
 
 A range analysis over-approximates the possible values of each integer variable at every program point. That information lets the compiler answer questions that constant or conventional interval analysis may miss, such as whether a loop has reached a stable bound or whether a branch is unreachable. It can also support downstream optimizations, including dead-branch elimination and more precise integer operations.
 
@@ -24,7 +25,7 @@ func foo() {
 
 ## Abstract domain
 
-The integer domain combines finite sets with strided intervals. The exact set $\{v_1, \ldots, v_k\}$ records constants while $k \leq N$, where `INT_VALUE_SET_SIZE` controls $N$. Once the set limit is exceeded, the value collapses to an interval
+The integer domain buids on [Ernani et al](https://ieeexplore.ieee.org/document/6494996)'s work, but we combine finite sets with strided intervals. The exact set $\{v_1, \ldots, v_k\}$ records constants while $k \leq N$, where [`INT_VALUE_SET_SIZE`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L17) controls $N$. Once the set limit is exceeded, the value collapses to an interval:
 
 $$
 [l, u : s] = \{l, l+s, l+2s, \ldots, u\},
@@ -54,17 +55,20 @@ graph BT
     class L3,L4,L5 note
 ```
 
+### Conversion to e-SSA
+> TODO
+
 ## Constraint extraction
 
-Range analysis is formulated as a system of dataflow constraints over SSA variables. `CompetitionRangeAnalysis` traverses CHIR values and adds equations to a `ConstraintGraph`; helper constraints for constants such as `0` and `true` are inserted explicitly.
+Range analysis is formulated as a system of dataflow constraints over SSA variables. [`CompetitionRangeAnalysis`](https://github.com/bernborgess/cheesebread/blob/main/cangjie_compiler/src/CHIR/Competition/CompetitionRangeAnalysis.cpp) traverses CHIR values and adds equations to a [`ConstraintGraph`](https://github.com/bernborgess/cheesebread/blob/main/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Graph.h); helper constraints for constants such as `0` and `true` are inserted explicitly.
 
 The solver currently models assignments and constants, SSA $\phi$ nodes, arithmetic and comparisons, intersections with bounds, and related integer operations. The principal constraint kinds include:
 
-- `InitializationConstraint`: $x = c$, for an integer constant $c$.
-- `InitializationIntegerTop`: initializes a variable to the Cangjie `Int64` top range.
-- `PhiConstraint`: $x = \phi(x_1, \ldots, x_k)$ joins values from multiple control-flow predecessors.
-- `IntersectionConstraint`: $x = y \cap [l,u]$, with bounds that may reference another variable symbolically.
-- Arithmetic and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
+- [`InitializationConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L137): $x = c$, for an integer constant $c$.
+- [`InitializationIntegerTop`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L158): initializes a variable to the Cangjie `Int64` top range.
+- [`PhiConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L180): $x = \phi(x_1, \ldots, x_k)$ joins values from multiple control-flow predecessors.
+- [`IntersectionConstraint`](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L220): $x = y \cap [l,u]$, with bounds that may reference another variable symbolically.
+- [Arithmetic](https://github.com/bernborgess/cheesebread/blob/0800117acb150326359039e885beea8e92db1c66/cangjie_compiler/include/cangjie/Competition/RangeAnalysisSolver/Constraint.h#L369) and comparison constraints: equations that evaluate expressions using abstract integer or Boolean values.
 
 ## Solver pipeline
 Range analysis computes a value range for every variable in a CHIR program. It builds a constraint graph, splits it into strongly connected components, and solves them in dependency order.
@@ -153,12 +157,12 @@ The result is a sound over-approximation of the values reaching each analyzed SS
 
 ## Benchmarks and validation
 
-The test harness under `test/` exercises the analysis with static assertions (`sassert`). These assertions have no runtime meaning; they describe properties that range analysis should prove after compilation.
+The test harness under [`test/`](https://github.com/bernborgess/cheesebread/tree/main/test) exercises the analysis with static assertions (`sassert`). These assertions have no runtime meaning; they describe properties that range analysis should prove after compilation.
 
-- `test/handmade/`: small programs designed to expose individual behaviors such as loops, arithmetic, arrays, recursion, and control-flow merges.
-- `test/flavors/`: focused widening and narrowing cases. For example, `fudge.cj` verifies that `i` is exactly `10` after a bounded loop.
-- `test/wcet/`: real-time and worst-case execution benchmark programs adapted from the WCET benchmark collection. They cover nested loops, sorting, digital filters, matrix operations, bit operations, recursion, and generated control flow.
-- `test/CangjieBench/`: 164 Cangjie programs used to measure analysis scale and code generation success across larger source inputs.
+- [`test/handmade/`](https://github.com/bernborgess/cheesebread/tree/main/test/handmade): small programs designed to expose individual behaviors such as loops, arithmetic, arrays, recursion, and control-flow merges.
+- [`test/flavors/`](https://github.com/bernborgess/cheesebread/tree/main/test/flavors): focused widening and narrowing cases. For example, `fudge.cj` verifies that `i` is exactly `10` after a bounded loop.
+- [`test/wcet/`](https://github.com/bernborgess/cheesebread/tree/main/test/wcet): real-time and worst-case execution benchmark programs adapted from the WCET benchmark collection. They cover nested loops, sorting, digital filters, matrix operations, bit operations, recursion, and generated control flow.
+- [`test/CangjieBench/`](https://github.com/bernborgess/cheesebread/tree/main/test/CangjieBench): 164 Cangjie programs used to measure analysis scale and code generation success across larger source inputs.
 
 Run a suite after building the compiler:
 
@@ -172,14 +176,14 @@ Run a suite after building the compiler:
 
 The harness compiles each case with `-O2 -j1`, reports static assertion failures, and compares expected output for handmade cases that provide `expected.txt`. WCET cases receive a generated input file and CangjieBench programs are compiled as static libraries.
 
-Set-size sensitivity can be measured with `evaluate_set_size.sh`. It rebuilds the compiler for exact-set capacities $1,2,4,8,16,32,64$, runs `test/CangjieBench/compile.sh` for each capacity, and writes `results-N.csv` files containing variable counts, constraint counts, bitwidth reduction, and analysis time.
+Set-size sensitivity can be measured with `evaluate_set_size.sh`. It rebuilds the compiler for exact-set capacities $1,2,4,8,16,32,64$, runs [`test/CangjieBench/compile.sh`](https://github.com/bernborgess/cheesebread/blob/main/test/CangjieBench/compile.sh) for each capacity, and writes `results-N.csv` files containing variable counts, constraint counts, bitwidth reduction, and analysis time.
 
 ## Setup
 
 - Prerequisites
   - Python3
   - Clang-{16,18,20}
-- [reference](https://gitcode.com/Cangjie/cangjie_build/blob/main/doc_en/linux.md)
+- [Reference](https://gitcode.com/Cangjie/cangjie_build/blob/main/doc_en/linux.md) for Cangjie setup
 - Initialize submodules
 
 ```bash
@@ -188,7 +192,7 @@ cd cangjie_runtime
 git checkout v1.2.0-beta.02
 ```
 
-- Run the setup script. `./setup.sh`
+- Run the setup script. [`./setup.sh`](https://github.com/bernborgess/cheesebread/blob/main/setup.sh)
 
 ## Documentation
 
