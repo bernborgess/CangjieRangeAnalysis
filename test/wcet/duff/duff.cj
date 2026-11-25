@@ -37,6 +37,10 @@ func duffcopy(to: Array<Int64>, from: Array<Int64>, count: Int64) {
 func initialize(arr: Array<Int64>, length: Int64) {
     var i: Int64 = 0
     while (i < length) {
+        // @range-cat: array-bound - index is bounded by the array length before the store
+        sassert(i <= 99)
+        // @range-cat: branch-bound - length is the constant ARRAYSIZE = 100 at every call site
+        sassert(length <= 100)
         arr[i] = length - i
         i = i + 1
     }
